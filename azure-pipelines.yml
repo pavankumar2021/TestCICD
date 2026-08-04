@@ -34,17 +34,22 @@ steps:
 - checkout: self
   clean: true
 
-# 0b) Clear only the NuGet HTTP-response cache so feed metadata is fetched fresh each run.
-#     (Intentionally does NOT wipe the extracted global-packages folder — that would force a
-#     slow re-download of the large UiPath packages every run. A blocked package like BalaReva
-#     is never successfully restored, so it never gets cached and stays blocked regardless.)
+# 0b) Remove ONLY the BalaReva package(s) from the NuGet global-packages cache.
+#     Everything else stays cached, so the UiPath packages are NOT re-downloaded (fast restore),
+#     while BalaReva is forced to be re-resolved from the feeds every run — and since it is on
+#     neither allowed feed, it stays blocked. Demonstrates the lockdown without wiping the cache.
 - task: PowerShell@2
-  displayName: 'Clear NuGet http-cache'
+  displayName: 'Remove BalaReva from NuGet cache (keep everything else)'
   inputs:
     targetType: 'inline'
     script: |
-      Remove-Item "$env:LOCALAPPDATA\NuGet\http-cache","$env:LOCALAPPDATA\NuGet\v3-cache" -Recurse -Force -ErrorAction SilentlyContinue
-      Write-Host "NuGet http-cache cleared."
+      $removed = $false
+      Get-ChildItem "$env:USERPROFILE\.nuget\packages" -Directory -Filter "balareva*" -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "Removing cached package: $($_.Name)"
+        Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        $removed = $true
+      }
+      if (-not $removed) { Write-Host "No BalaReva* packages in cache (nothing to remove)." }
 
 # 1) .NET 8 is already installed on this self-hosted agent (runtime 8.0.x present),
 #    so the UseDotNet@2 install step is not needed. `dotnet uipcli.dll` only needs the .NET 8 runtime.
