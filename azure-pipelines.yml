@@ -9,7 +9,9 @@
 trigger: none          # set your own triggers
 
 pool:
-  vmImage: 'windows-latest'    # or your self-hosted Windows agent
+  name: 'Default'              # self-hosted agent pool (org: dev.azure.com/pavankosuru)
+  demands:
+    - Agent.Name -equals DESKTOP-11Q1P0Q   # optional: pin to this specific agent; remove to use any agent in the pool
 
 variables:
   cliVersion: 'Windows.25.10.21'
@@ -24,6 +26,22 @@ variables:
   # (Pipeline -> Edit -> Variables -> New, mark as secret). Do NOT hard-code it here.
 
 steps:
+
+# 0) Clean checkout — self-hosted agents keep the workspace between runs
+- checkout: self
+  clean: true
+
+# 0b) OPTIONAL (self-hosted): clear NuGet caches so the feed lockdown is tested cleanly.
+#     A persistent agent keeps the global-packages/http cache, which can mask a blocked
+#     feed (a previously-restored package resolves from cache instead of hitting the feed).
+#     Uncomment to force a live, cache-free restore.
+# - task: PowerShell@2
+#   displayName: 'Clear NuGet caches (clean feed-lockdown test)'
+#   inputs:
+#     targetType: 'inline'
+#     script: |
+#       Remove-Item "$env:USERPROFILE\.nuget\packages" -Recurse -Force -ErrorAction SilentlyContinue
+#       Remove-Item "$env:LOCALAPPDATA\NuGet\http-cache","$env:LOCALAPPDATA\NuGet\v3-cache" -Recurse -Force -ErrorAction SilentlyContinue
 
 # 1) .NET 8 (the 25.10 CLI runs on .NET 8)
 - task: UseDotNet@2
