@@ -1,0 +1,6 @@
+﻿.local/
+.objects/
+.settings/
+bin/
+obj/
+*.nupkg

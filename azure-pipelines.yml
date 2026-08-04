@@ -1,0 +1,108 @@
+# =====================================================================
+# UiPath pack with NuGet feed lockdown
+# Allow ONLY: pkgs.dev.azure.com (UiPath.*) + your custom feed (custom pkgs)
+# Block everything else (gallery.uipath.com, nuget.org, machine feeds)
+# Uses the UiPath CLI directly so --excludeConfiguredSources can be applied
+# (the UiPathPack@6 task does NOT expose that switch).
+# =====================================================================
+
+trigger: none          # set your own triggers
+
+pool:
+  vmImage: 'windows-latest'    # or your self-hosted Windows agent
+
+variables:
+  cliVersion: 'Windows.25.10.21'
+  # --- adjust to your project ---
+  projectJsonPath: '$(Build.SourcesDirectory)\project.json'
+  outputPath: '$(Build.ArtifactStagingDirectory)\Output'
+  # --- feeds ---
+  uipathOfficialFeed: 'https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json'
+  # your Orchestrator (or internal) feed that hosts custom packages (e.g. SharePointReusableLibrary, IRAS.*)
+  customFeed: 'https://<your-orchestrator-host>/<org>/<tenant>/orchestrator_/nuget/v3/<feedId>/index.json'
+  # If the custom feed needs auth, add a SECRET pipeline variable named 'customFeedApiKey'
+  # (Pipeline -> Edit -> Variables -> New, mark as secret). Do NOT hard-code it here.
+
+steps:
+
+# 1) .NET 8 (the 25.10 CLI runs on .NET 8)
+- task: UseDotNet@2
+  displayName: 'Install .NET SDK 8.0.x'
+  inputs:
+    packageType: 'sdk'
+    version: '8.0.x'
+    performMultiLevelLookup: true
+
+# 2) UiPath CLI
+- task: UiPathInstallPlatform@6
+  displayName: 'Install UiPath CLI $(cliVersion)'
+  inputs:
+    cliVersion: '$(cliVersion)'
+
+# 3) Write the locked NuGet.config (clear + only the two allowed feeds + source mapping)
+- task: PowerShell@2
+  displayName: 'Write locked NuGet.config'
+  inputs:
+    targetType: 'inline'
+    script: |
+      $cfg = @"
+      <?xml version="1.0" encoding="utf-8"?>
+      <configuration>
+        <packageSources>
+          <clear />
+          <add key="UiPath-Official" value="$(uipathOfficialFeed)" />
+          <add key="CustomFeed"      value="$(customFeed)" />
+        </packageSources>
+        <packageSourceMapping>
+          <packageSource key="UiPath-Official">
+            <package pattern="UiPath.*" />
+          </packageSource>
+          <packageSource key="CustomFeed">
+            <package pattern="SharePoint*" />
+            <package pattern="IRAS.*" />
+            <package pattern="UiPathTeam.*" />
+          </packageSource>
+        </packageSourceMapping>
+      </configuration>
+      "@
+
+      # If the custom feed requires authentication, inject credentials from the secret variable.
+      if ('$(customFeedApiKey)' -and '$(customFeedApiKey)' -notlike '`$(*') {
+        $creds = @"
+        <packageSourceCredentials>
+          <CustomFeed>
+            <add key="Username" value="pipeline" />
+            <add key="ClearTextPassword" value="$(customFeedApiKey)" />
+          </CustomFeed>
+        </packageSourceCredentials>
+      "@
+        $cfg = $cfg -replace '</configuration>', ($creds + "`r`n</configuration>")
+      }
+
+      $path = Join-Path "$(Build.SourcesDirectory)" "NuGet.config"
+      [System.IO.File]::WriteAllText($path, $cfg)
+      Write-Host "Wrote $path"
+      # (do not print the file if it contains credentials)
+
+# 4) Pack with the CLI, restricted to ONLY the feeds in NuGet.config
+- task: PowerShell@2
+  displayName: 'Build nupkg (feed lockdown)'
+  inputs:
+    targetType: 'inline'
+    script: |
+      $cli = Get-ChildItem "$(Agent.ToolsDirectory)\uipcli" -Recurse -Filter uipcli.dll |
+             Select-Object -First 1 -ExpandProperty FullName
+      Write-Host "Using CLI: $cli"
+      dotnet "$cli" package pack "$(projectJsonPath)" `
+        -o "$(outputPath)" `
+        --outputType Process --traceLevel Verbose `
+        --nugetConfigFilePath "$(Build.SourcesDirectory)\NuGet.config" `
+        --excludeConfiguredSources
+      if ($LASTEXITCODE -ne 0) { Write-Error "Pack failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+
+# 5) Publish the produced .nupkg
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish nupkg'
+  inputs:
+    PathtoPublish: '$(outputPath)'
+    ArtifactName: 'nupkg'
