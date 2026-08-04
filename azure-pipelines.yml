@@ -6,7 +6,10 @@
 # (the UiPathPack@6 task does NOT expose that switch).
 # =====================================================================
 
-trigger: none          # set your own triggers
+trigger:
+  branches:
+    include:
+      - main           # CI: run on every push to main
 
 pool:
   name: 'Default'              # self-hosted agent pool (org: dev.azure.com/pavankosuru)
@@ -15,8 +18,8 @@ pool:
 
 variables:
   cliVersion: 'Windows.25.10.21'
-  # --- adjust to your project ---
-  projectJsonPath: '$(Build.SourcesDirectory)\project.json'
+  # --- project (committed in this repo) ---
+  projectJsonPath: '$(Build.SourcesDirectory)\BlankProcess_TestEntity\project.json'
   outputPath: '$(Build.ArtifactStagingDirectory)\Output'
   # --- feeds ---
   uipathOfficialFeed: 'https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json'
