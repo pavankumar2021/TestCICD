@@ -1,7 +1,7 @@
 # =====================================================================
 # UiPath pack with NuGet feed lockdown
-# Allow ONLY: pkgs.dev.azure.com (UiPath Official feed). No other feed permitted.
-# Block everything else (gallery.uipath.com, nuget.org, machine feeds, custom feeds)
+# Allow: pkgs.dev.azure.com (UiPath.*) + nuget.org (transitive deps only).
+# Block everything else (gallery.uipath.com, Orchestrator/custom feeds, machine feeds).
 # Uses the UiPath CLI directly so --excludeConfiguredSources can be applied
 # (the UiPathPack@6 task does NOT expose that switch).
 # =====================================================================
@@ -24,8 +24,9 @@ variables:
   # --- project (committed in this repo) ---
   projectJsonPath: '$(Build.SourcesDirectory)\BlankProcess_TestEntity\project.json'
   outputPath: '$(Build.ArtifactStagingDirectory)\Output'
-  # --- feed: ONLY the UiPath Official feed on pkgs.dev.azure.com (no other feed allowed) ---
+  # --- feeds: UiPath.* from pkgs.dev.azure.com; transitive deps from nuget.org; all others blocked ---
   uipathOfficialFeed: 'https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json'
+  nugetOrgFeed: 'https://api.nuget.org/v3/index.json'
 
 steps:
 
@@ -33,18 +34,17 @@ steps:
 - checkout: self
   clean: true
 
-# 0b) Clear NuGet caches so the feed lockdown is tested cleanly.
-#     A persistent self-hosted agent keeps the global-packages/http cache, which can mask a
-#     blocked feed (a previously-restored package resolves from cache instead of hitting the feed).
-#     This forces a live, cache-free restore against only the allowed feed.
+# 0b) Clear only the NuGet HTTP-response cache so feed metadata is fetched fresh each run.
+#     (Intentionally does NOT wipe the extracted global-packages folder — that would force a
+#     slow re-download of the large UiPath packages every run. A blocked package like BalaReva
+#     is never successfully restored, so it never gets cached and stays blocked regardless.)
 - task: PowerShell@2
-  displayName: 'Clear NuGet caches (clean feed-lockdown test)'
+  displayName: 'Clear NuGet http-cache'
   inputs:
     targetType: 'inline'
     script: |
-      Remove-Item "$env:USERPROFILE\.nuget\packages" -Recurse -Force -ErrorAction SilentlyContinue
       Remove-Item "$env:LOCALAPPDATA\NuGet\http-cache","$env:LOCALAPPDATA\NuGet\v3-cache" -Recurse -Force -ErrorAction SilentlyContinue
-      Write-Host "NuGet caches cleared."
+      Write-Host "NuGet http-cache cleared."
 
 # 1) .NET 8 is already installed on this self-hosted agent (runtime 8.0.x present),
 #    so the UseDotNet@2 install step is not needed. `dotnet uipcli.dll` only needs the .NET 8 runtime.
@@ -59,9 +59,9 @@ steps:
       if (-not (Test-Path "$(cliDll)")) { Write-Error "UiPath CLI not found at $(cliDll)"; exit 1 }
       dotnet "$(cliDll)" --version
 
-# 3) Write the locked NuGet.config (clear + ONLY the UiPath Official feed; * -> that feed)
+# 3) Write the locked NuGet.config: UiPath.* -> pkgs.dev.azure.com; everything else -> nuget.org
 - task: PowerShell@2
-  displayName: 'Write locked NuGet.config (UiPath Official feed only)'
+  displayName: 'Write locked NuGet.config (UiPath.* -> official, rest -> nuget.org)'
   inputs:
     targetType: 'inline'
     script: |
@@ -71,9 +71,13 @@ steps:
         <packageSources>
           <clear />
           <add key="UiPath-Official" value="$(uipathOfficialFeed)" />
+          <add key="nuget.org"       value="$(nugetOrgFeed)" />
         </packageSources>
         <packageSourceMapping>
           <packageSource key="UiPath-Official">
+            <package pattern="UiPath.*" />
+          </packageSource>
+          <packageSource key="nuget.org">
             <package pattern="*" />
           </packageSource>
         </packageSourceMapping>
