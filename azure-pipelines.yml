@@ -1,6 +1,6 @@
 # =====================================================================
 # UiPath pack with NuGet feed lockdown
-# Allow: pkgs.dev.azure.com (UiPath.*) + nuget.org (transitive deps only).
+# Allow: pkgs.dev.azure.com (UiPath Official) + nuget.org  (both searched; no source mapping).
 # Block everything else (gallery.uipath.com, Orchestrator/custom feeds, machine feeds).
 # Uses the UiPath CLI directly so --excludeConfiguredSources can be applied
 # (the UiPathPack@6 task does NOT expose that switch).
@@ -59,9 +59,14 @@ steps:
       if (-not (Test-Path "$(cliDll)")) { Write-Error "UiPath CLI not found at $(cliDll)"; exit 1 }
       dotnet "$(cliDll)" --version
 
-# 3) Write the locked NuGet.config: UiPath.* -> pkgs.dev.azure.com; everything else -> nuget.org
+# 3) Write the locked NuGet.config: ONLY the UiPath Official feed + nuget.org are listed.
+#    No packageSourceMapping — NuGet searches BOTH feeds for every package. This is required
+#    because UiPath activity packages pull transitive deps that are NOT named "UiPath.*"
+#    (e.g. System.Activities.ViewModels) yet live on the UiPath Official feed; a UiPath.*->official /
+#    *->nuget.org mapping mis-routes those to nuget.org (404) and the restore stalls/fails.
+#    <clear/> + only these two sources still blocks gallery.uipath.com, Orchestrator and custom feeds.
 - task: PowerShell@2
-  displayName: 'Write locked NuGet.config (UiPath.* -> official, rest -> nuget.org)'
+  displayName: 'Write locked NuGet.config (UiPath Official + nuget.org only)'
   inputs:
     targetType: 'inline'
     script: |
@@ -73,14 +78,6 @@ steps:
           <add key="UiPath-Official" value="$(uipathOfficialFeed)" />
           <add key="nuget.org"       value="$(nugetOrgFeed)" />
         </packageSources>
-        <packageSourceMapping>
-          <packageSource key="UiPath-Official">
-            <package pattern="UiPath.*" />
-          </packageSource>
-          <packageSource key="nuget.org">
-            <package pattern="*" />
-          </packageSource>
-        </packageSourceMapping>
       </configuration>
       "@
       $path = Join-Path "$(Build.SourcesDirectory)" "NuGet.config"
