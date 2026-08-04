@@ -1,7 +1,7 @@
 # =====================================================================
 # UiPath pack with NuGet feed lockdown
-# Allow ONLY: pkgs.dev.azure.com (UiPath.*) + your custom feed (custom pkgs)
-# Block everything else (gallery.uipath.com, nuget.org, machine feeds)
+# Allow ONLY: pkgs.dev.azure.com (UiPath Official feed). No other feed permitted.
+# Block everything else (gallery.uipath.com, nuget.org, machine feeds, custom feeds)
 # Uses the UiPath CLI directly so --excludeConfiguredSources can be applied
 # (the UiPathPack@6 task does NOT expose that switch).
 # =====================================================================
@@ -23,12 +23,8 @@ variables:
   # --- project (committed in this repo) ---
   projectJsonPath: '$(Build.SourcesDirectory)\BlankProcess_TestEntity\project.json'
   outputPath: '$(Build.ArtifactStagingDirectory)\Output'
-  # --- feeds ---
+  # --- feed: ONLY the UiPath Official feed on pkgs.dev.azure.com (no other feed allowed) ---
   uipathOfficialFeed: 'https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json'
-  # your Orchestrator (or internal) feed that hosts custom packages (e.g. SharePointReusableLibrary, IRAS.*)
-  customFeed: 'https://<your-orchestrator-host>/<org>/<tenant>/orchestrator_/nuget/v3/<feedId>/index.json'
-  # If the custom feed needs auth, add a SECRET pipeline variable named 'customFeedApiKey'
-  # (Pipeline -> Edit -> Variables -> New, mark as secret). Do NOT hard-code it here.
 
 steps:
 
@@ -61,9 +57,9 @@ steps:
       if (-not (Test-Path "$(cliDll)")) { Write-Error "UiPath CLI not found at $(cliDll)"; exit 1 }
       dotnet "$(cliDll)" --version
 
-# 3) Write the locked NuGet.config (clear + only the two allowed feeds + source mapping)
+# 3) Write the locked NuGet.config (clear + ONLY the UiPath Official feed; * -> that feed)
 - task: PowerShell@2
-  displayName: 'Write locked NuGet.config'
+  displayName: 'Write locked NuGet.config (UiPath Official feed only)'
   inputs:
     targetType: 'inline'
     script: |
@@ -73,38 +69,18 @@ steps:
         <packageSources>
           <clear />
           <add key="UiPath-Official" value="$(uipathOfficialFeed)" />
-          <add key="CustomFeed"      value="$(customFeed)" />
         </packageSources>
         <packageSourceMapping>
           <packageSource key="UiPath-Official">
-            <package pattern="UiPath.*" />
-          </packageSource>
-          <packageSource key="CustomFeed">
-            <package pattern="SharePoint*" />
-            <package pattern="IRAS.*" />
-            <package pattern="UiPathTeam.*" />
+            <package pattern="*" />
           </packageSource>
         </packageSourceMapping>
       </configuration>
       "@
-
-      # If the custom feed requires authentication, inject credentials from the secret variable.
-      if ('$(customFeedApiKey)' -and '$(customFeedApiKey)' -notlike '`$(*') {
-        $creds = @"
-        <packageSourceCredentials>
-          <CustomFeed>
-            <add key="Username" value="pipeline" />
-            <add key="ClearTextPassword" value="$(customFeedApiKey)" />
-          </CustomFeed>
-        </packageSourceCredentials>
-      "@
-        $cfg = $cfg -replace '</configuration>', ($creds + "`r`n</configuration>")
-      }
-
       $path = Join-Path "$(Build.SourcesDirectory)" "NuGet.config"
       [System.IO.File]::WriteAllText($path, $cfg)
       Write-Host "Wrote $path"
-      # (do not print the file if it contains credentials)
+      Get-Content $path
 
 # 4) Pack with the CLI, restricted to ONLY the feeds in NuGet.config
 - task: PowerShell@2
