@@ -17,6 +17,7 @@ pool:
     - Agent.Name -equals DESKTOP-11Q1P0Q   # optional: pin to this specific agent; remove to use any agent in the pool
 
 variables:
+  system.debug: 'true'
   cliVersion: 'Windows.25.10.21'
   # UiPath CLI already installed on the self-hosted agent (no download needed)
   cliDll: 'C:\uipcli\25.10.21\tools\net8.0\any\uipcli.dll'
