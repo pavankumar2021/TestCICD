@@ -18,6 +18,8 @@ pool:
 
 variables:
   cliVersion: 'Windows.25.10.21'
+  # UiPath CLI already installed on the self-hosted agent (no download needed)
+  cliDll: 'C:\uipcli\25.10.21\tools\net8.0\any\uipcli.dll'
   # --- project (committed in this repo) ---
   projectJsonPath: '$(Build.SourcesDirectory)\BlankProcess_TestEntity\project.json'
   outputPath: '$(Build.ArtifactStagingDirectory)\Output'
@@ -54,11 +56,15 @@ steps:
     version: '8.0.x'
     performMultiLevelLookup: true
 
-# 2) UiPath CLI
-- task: UiPathInstallPlatform@6
-  displayName: 'Install UiPath CLI $(cliVersion)'
+# 2) UiPath CLI — already installed on this self-hosted agent at $(cliDll).
+#    (No UiPathInstallPlatform@6 download step; just verify it's present.)
+- task: PowerShell@2
+  displayName: 'Verify pre-installed UiPath CLI'
   inputs:
-    cliVersion: '$(cliVersion)'
+    targetType: 'inline'
+    script: |
+      if (-not (Test-Path "$(cliDll)")) { Write-Error "UiPath CLI not found at $(cliDll)"; exit 1 }
+      dotnet "$(cliDll)" --version
 
 # 3) Write the locked NuGet.config (clear + only the two allowed feeds + source mapping)
 - task: PowerShell@2
@@ -111,8 +117,7 @@ steps:
   inputs:
     targetType: 'inline'
     script: |
-      $cli = Get-ChildItem "$(Agent.ToolsDirectory)\uipcli" -Recurse -Filter uipcli.dll |
-             Select-Object -First 1 -ExpandProperty FullName
+      $cli = "$(cliDll)"
       Write-Host "Using CLI: $cli"
       dotnet "$cli" package pack "$(projectJsonPath)" `
         -o "$(outputPath)" `
