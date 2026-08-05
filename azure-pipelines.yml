@@ -80,7 +80,7 @@ steps:
       <configuration>
         <packageSources>
           <clear />
-          <add key="UiPath-Official" value="$(uipathOfficialFeed)" />
+          #<add key="UiPath-Official" value="$(uipathOfficialFeed)" />
           <add key="nuget.org"       value="$(nugetOrgFeed)" />
         </packageSources>
       </configuration>
