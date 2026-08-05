@@ -44,7 +44,7 @@ steps:
     targetType: 'inline'
     script: |
       $removed = $false
-      Get-ChildItem "$env:USERPROFILE\.nuget\packages" -Directory -Filter "balareva*" -ErrorAction SilentlyContinue | ForEach-Object {
+      Get-ChildItem "$env:USERPROFILE\.nuget\packages" -Directory -Filter "UiPath.System.Activities*" -ErrorAction SilentlyContinue | ForEach-Object {
         Write-Host "Removing cached package: $($_.Name)"
         Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
         $removed = $true
@@ -80,7 +80,6 @@ steps:
       <configuration>
         <packageSources>
           <clear />
-          #<add key="UiPath-Official" value="$(uipathOfficialFeed)" />
           <add key="nuget.org"       value="$(nugetOrgFeed)" />
         </packageSources>
       </configuration>
